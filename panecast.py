@@ -1,36 +1,16 @@
-import ctypes
-from ctypes import wintypes
+"""PaneCast - cast individual application windows to a second display.
+
+Platform-specific capture lives in the `backends` package; this module is the
+tkinter interface and the render loop, and talks only to the backend interface.
+"""
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
-import atexit
 import json
 import os
 
-# Enable 1ms High-Precision System Timer on Windows for Ultra-Smooth Refresh Rates
-try:
-    ctypes.windll.winmm.timeBeginPeriod(1)
-    # Always hand the global timer resolution back; leaving it raised costs
-    # battery life system-wide, not just for this process.
-    atexit.register(ctypes.windll.winmm.timeEndPeriod, 1)
-except Exception:
-    pass
-
-# Try importing Windows Graphics Capture API (Native OS Isolated Capture Engine)
-try:
-    from windows_capture import WindowsCapture
-    HAS_WINDOWS_CAPTURE = True
-except Exception:
-    HAS_WINDOWS_CAPTURE = False
-
-# Set Per-Monitor DPI Awareness so screen geometry & pixels match 1:1
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2) # PROCESS_PER_MONITOR_DPI_AWARE
-except Exception:
-    try:
-        ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
-    except Exception:
-        pass
+import backends
 
 APP_NAME = "PaneCast"
 
@@ -78,197 +58,11 @@ def save_settings(data):
         pass
 
 
-user32 = ctypes.windll.user32
-gdi32 = ctypes.windll.gdi32
-dwmapi = ctypes.windll.dwmapi
-
-GWL_EXSTYLE = -20
-WS_EX_TOOLWINDOW = 0x00000080
-
-class RECT(ctypes.Structure):
-    _fields_ = [
-        ('left', ctypes.c_long),
-        ('top', ctypes.c_long),
-        ('right', ctypes.c_long),
-        ('bottom', ctypes.c_long)
-    ]
-
-class MONITORINFOEXW(ctypes.Structure):
-    _fields_ = [
-        ('cbSize', wintypes.DWORD),
-        ('rcMonitor', RECT),
-        ('rcWork', RECT),
-        ('dwFlags', wintypes.DWORD),
-        ('szDevice', ctypes.c_wchar * 32)
-    ]
-
-class BITMAPINFOHEADER(ctypes.Structure):
-    _fields_ = [
-        ('biSize', wintypes.DWORD),
-        ('biWidth', wintypes.LONG),
-        ('biHeight', wintypes.LONG),
-        ('biPlanes', wintypes.WORD),
-        ('biBitCount', wintypes.WORD),
-        ('biCompression', wintypes.DWORD),
-        ('biSizeImage', wintypes.DWORD),
-        ('biXPelsPerMeter', wintypes.LONG),
-        ('biYPelsPerMeter', wintypes.LONG),
-        ('biClrUsed', wintypes.DWORD),
-        ('biClrImportant', wintypes.DWORD)
-    ]
-
-def get_open_windows():
-    windows = []
-    own_pid = os.getpid()
-
-    def enum_windows_callback(hwnd, lParam):
-        if user32.IsWindowVisible(hwnd):
-            # Skip every window owned by this process, otherwise the control
-            # panel and the projector surface show up as capture targets.
-            wnd_pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(wnd_pid))
-            if wnd_pid.value == own_pid:
-                return 1
-            ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            if not (ex_style & WS_EX_TOOLWINDOW):
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length > 0:
-                    buff = ctypes.create_unicode_buffer(length + 1)
-                    user32.GetWindowTextW(hwnd, buff, length + 1)
-                    title = buff.value.strip()
-                    ignored = [
-                        'Program Manager', 'Settings', 'Windows Input Experience',
-                        'NVIDIA GeForce Overlay'
-                    ]
-                    if title and not any(title.startswith(ig) for ig in ignored):
-                        windows.append((title, hwnd))
-        return 1
-
-    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HWND, wintypes.LPARAM)
-    cb = WNDENUMPROC(enum_windows_callback)
-    user32.EnumWindows(cb, 0)
-    return sorted(windows, key=lambda x: x[0].lower())
-
-def get_monitors():
-    monitors = []
-    def callback(hMonitor, hdcMonitor, lprcMonitor, lParam):
-        mi = MONITORINFOEXW()
-        mi.cbSize = ctypes.sizeof(MONITORINFOEXW)
-        user32.GetMonitorInfoW(hMonitor, ctypes.byref(mi))
-        r = mi.rcMonitor
-        monitors.append({
-            'device': mi.szDevice,
-            'x': r.left,
-            'y': r.top,
-            'width': r.right - r.left,
-            'height': r.bottom - r.top,
-            'is_primary': bool(mi.dwFlags & 1)
-        })
-        return 1
-
-    MONITORENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(RECT), wintypes.LPARAM)
-    cb = MONITORENUMPROC(callback)
-    user32.EnumDisplayMonitors(None, None, cb, 0)
-    return monitors
-
-def find_best_capture_hwnd(top_hwnd):
-    """Finds the actual rendering canvas HWND (e.g. Java SunAwtCanvas) inside top_hwnd."""
-    if not user32.IsWindow(top_hwnd):
-        return top_hwnd
-
-    rect = RECT()
-    user32.GetClientRect(top_hwnd, ctypes.byref(rect))
-    top_w = rect.right - rect.left
-    top_h = rect.bottom - rect.top
-
-    children = []
-    def enum_child_proc(child_hwnd, lParam):
-        if user32.IsWindowVisible(child_hwnd):
-            c_rect = RECT()
-            user32.GetClientRect(child_hwnd, ctypes.byref(c_rect))
-            cw = c_rect.right - c_rect.left
-            ch = c_rect.bottom - c_rect.top
-            
-            buff = ctypes.create_unicode_buffer(256)
-            user32.GetClassNameW(child_hwnd, buff, 256)
-            class_name = buff.value
-            
-            if cw > 50 and ch > 50:
-                children.append((child_hwnd, class_name, cw, ch, cw * ch))
-        return 1
-
-    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HWND, wintypes.LPARAM)
-    cb = WNDENUMPROC(enum_child_proc)
-    user32.EnumChildWindows(top_hwnd, cb, 0)
-
-    children.sort(key=lambda x: x[4], reverse=True)
-
-    for chwnd, cname, cw, ch, area in children:
-        if "Canvas" in cname or "Render" in cname or "Direct" in cname or "OpenGL" in cname or "Awt" in cname:
-            return chwnd
-        if cw >= top_w * 0.75 and ch >= top_h * 0.75:
-            return chwnd
-
-    return top_hwnd
-
-def get_window_bounds(hwnd):
-    rect = RECT()
-    res = dwmapi.DwmGetWindowAttribute(hwnd, 9, ctypes.byref(rect), ctypes.sizeof(rect))
-    if res == 0:
-        w = rect.right - rect.left
-        h = rect.bottom - rect.top
-        if w > 50 and h > 50:
-            return rect.left, rect.top, w, h
-            
-    user32.GetWindowRect(hwnd, ctypes.byref(rect))
-    return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
-
-def capture_printwindow(hwnd):
-    """Isolated window capture fallback via PrintWindow."""
-    if not user32.IsWindow(hwnd):
-        return None
-
-    x, y, w, h = get_window_bounds(hwnd)
-    if w <= 0 or h <= 0:
-        return None
-
-    hwndDC = user32.GetWindowDC(hwnd)
-    if not hwndDC:
-        return None
-
-    mfcDC = gdi32.CreateCompatibleDC(hwndDC)
-    bmp = gdi32.CreateCompatibleBitmap(hwndDC, w, h)
-    old_bmp = gdi32.SelectObject(mfcDC, bmp)
-
-    res = user32.PrintWindow(hwnd, mfcDC, 2)
-    if not res:
-        res = user32.PrintWindow(hwnd, mfcDC, 0)
-
-    bmi = BITMAPINFOHEADER()
-    bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-    bmi.biWidth = w
-    bmi.biHeight = -h
-    bmi.biPlanes = 1
-    bmi.biBitCount = 32
-    bmi.biCompression = 0
-
-    buf = ctypes.create_string_buffer(w * h * 4)
-    gdi32.GetDIBits(mfcDC, bmp, 0, h, buf, ctypes.byref(bmi), 0)
-
-    gdi32.SelectObject(mfcDC, old_bmp)
-    gdi32.DeleteObject(bmp)
-    gdi32.DeleteDC(mfcDC)
-    user32.ReleaseDC(hwnd, hwndDC)
-
-    if not res:
-        return None
-
-    return Image.frombytes('RGB', (w, h), buf.raw, 'raw', 'BGRX')
-
-
 class PaneCastControl:
     def __init__(self, root):
         self.root = root
+        self.backend = backends.get_backend()
+        self.backend.prepare_process()
         self.root.title("PaneCast")
         self.root.geometry("560x660")
         self.root.resizable(False, False)
@@ -415,9 +209,21 @@ class PaneCastControl:
         self.monitor_notice.pack(anchor="w", pady=(0, 4))
 
         # Status indicator
-        engine_status = "🚀 Engine: Windows Graphics Capture" if HAS_WINDOWS_CAPTURE else "⚠️ Engine: PrintWindow fallback (slower)"
-        status_lbl = ttk.Label(main_frame, text=engine_status, font=("Segoe UI", 8, "bold"), foreground="#059669")
-        status_lbl.pack(anchor="w", pady=(0, 8))
+        degraded = self.backend.degraded_reason
+        engine_status = f"Engine: {self.backend.name}"
+        status_lbl = ttk.Label(
+            main_frame, text=engine_status, font=("Segoe UI", 8, "bold"),
+            foreground="#d97706" if degraded else "#059669"
+        )
+        status_lbl.pack(anchor="w", pady=(0, 2 if degraded else 8))
+
+        # Say plainly when a slower or unverified path is in use, rather than
+        # letting the user assume the fast one is running.
+        if degraded:
+            ttk.Label(
+                main_frame, text=degraded, font=("Segoe UI", 8),
+                foreground="#d97706", wraplength=520, justify="left"
+            ).pack(anchor="w", pady=(0, 8))
 
         # Controls Section
         btn_frame = ttk.Frame(main_frame)
@@ -522,7 +328,7 @@ class PaneCastControl:
         self.refresh_monitors()
 
     def refresh_windows(self):
-        wins = get_open_windows()
+        wins = self.backend.list_windows()
         self.windows_map = {f"{title}": hwnd for title, hwnd in wins}
         titles = list(self.windows_map.keys())
         
@@ -537,7 +343,7 @@ class PaneCastControl:
         self.win2_combo.current(0)
 
     def refresh_monitors(self):
-        self.monitors_list = get_monitors()
+        self.monitors_list = self.backend.list_monitors()
         options = []
         default_index = 0
         
@@ -563,61 +369,33 @@ class PaneCastControl:
                 foreground="#059669"
             )
 
-    def _start_isolated_session(self, target_hwnd, slot):
-        """Start a Windows Graphics Capture stream feeding frame slot 1 or 2."""
-        if not HAS_WINDOWS_CAPTURE or not target_hwnd or not user32.IsWindow(target_hwnd):
-            return None, None
+    def _start_isolated_session(self, target_handle, slot):
+        """Ask the backend to stream frames into slot 1 or 2.
 
-        best_hwnd = find_best_capture_hwnd(target_hwnd)
-        hwnds_to_try = [best_hwnd]
-        if best_hwnd != target_hwnd:
-            hwnds_to_try.append(target_hwnd)
+        Returns ``(stream, stream)`` or ``(None, None)``. Backends that cannot
+        stream return None here and the render loop polls ``backend.grab()``
+        instead.
+        """
+        if not target_handle:
+            return None, None
 
         img_attr = f'latest_pil_img{slot}'
         seq_attr = f'frame_seq{slot}'
 
-        # draw_border is only honoured on newer Windows builds; on older ones
-        # WindowsCapture raises as soon as the session starts, so retry without it.
-        option_sets = [
-            {'cursor_capture': False, 'draw_border': False},
-            {'cursor_capture': False},
-        ]
+        def on_frame(image):
+            # Called from the backend's capture thread. Assignment is atomic
+            # under the GIL and the sequence bump is what the render loop
+            # watches, so no lock is needed for this single-producer case.
+            setattr(self, img_attr, image)
+            setattr(self, seq_attr, getattr(self, seq_attr) + 1)
 
-        for h in hwnds_to_try:
-            for opts in option_sets:
-                try:
-                    session = WindowsCapture(window_hwnd=h, **opts)
+        try:
+            stream = self.backend.open_stream(target_handle, on_frame)
+        except Exception as exc:
+            print(f"capture stream failed: {type(exc).__name__}: {exc}")
+            return None, None
 
-                    @session.event
-                    def on_frame_arrived(frame, capture_control):
-                        try:
-                            buf = frame.frame_buffer  # (H, W, 4) BGRA, zero-copy
-                            h_px, w_px = buf.shape[0], buf.shape[1]
-                            # tobytes() copies out of the native mapped frame
-                            # before it is released; 'BGRX' does the channel
-                            # swap and drops alpha in one C-level pass.
-                            pil_img = Image.frombytes(
-                                'RGB', (w_px, h_px), buf.tobytes(), 'raw', 'BGRX'
-                            )
-                            setattr(self, img_attr, pil_img)
-                            setattr(self, seq_attr, getattr(self, seq_attr) + 1)
-                        except Exception as exc:
-                            # Report once rather than silently degrading to the
-                            # slow fallback with no explanation.
-                            if not self._frame_error_logged:
-                                self._frame_error_logged = True
-                                print(f"WGC frame decode failed: {type(exc).__name__}: {exc}")
-
-                    @session.event
-                    def on_closed():
-                        pass
-
-                    control = session.start_free_threaded()
-                    return session, control
-                except Exception as e:
-                    print(f"WGC capture unavailable on HWND {h} with {opts}: {e}")
-
-        return None, None
+        return (stream, stream) if stream is not None else (None, None)
 
     def start_projection(self):
         if self.is_projecting:
@@ -762,7 +540,7 @@ class PaneCastControl:
 
         # No WGC stream, or it has not produced its first frame yet. PrintWindow
         # returns a fresh frame on every call, so it always counts as new.
-        return capture_printwindow(hwnd), getattr(self, f'rendered_seq{slot}') + 1
+        return self.backend.grab(hwnd), getattr(self, f'rendered_seq{slot}') + 1
 
     def update_projection(self):
         if not self.is_projecting or not self.projector_window:
@@ -883,6 +661,10 @@ class PaneCastControl:
         """Tear down capture threads before the UI goes away."""
         self._save_settings()
         self.stop_projection()
+        try:
+            self.backend.shutdown()
+        except Exception:
+            pass
         try:
             self.root.destroy()
         except Exception:

@@ -7,9 +7,9 @@ Unlike `Win + P` screen duplication, PaneCast captures **individual
 windows**. Your email, notifications and browser tabs stay private on your
 laptop while only the window(s) you chose appear on the big screen.
 
-> **Platform support:** Windows 10/11 only. See
-> [Platform support](#platform-support) for why, and the
-> [Roadmap](#roadmap) for cross-platform plans.
+> **Platform support:** Windows is fully supported and tested. macOS and
+> Linux backends exist but are **experimental and unverified on real
+> hardware** - see [Platform support](#platform-support).
 
 ---
 
@@ -173,24 +173,49 @@ the Tk canvas with a GPU-backed presentation surface.
 
 ## Platform support
 
-| Platform | Status |
-| --- | --- |
-| Windows 10 / 11 | ✅ Supported |
-| macOS | ❌ Not supported |
-| Linux | ❌ Not supported |
+Capture is isolated behind a small interface in [`backends/`](backends/), so
+each platform plugs in its own implementation. `backends.get_backend()` picks
+the first one that reports itself available.
 
-This is **not** a packaging limitation — the capture engine is built directly
-on Win32. Every core operation (window enumeration, per-window capture, monitor
-geometry, DPI awareness) is a Windows-specific system call with no portable
-equivalent. Supporting other platforms requires new capture backends:
+| Platform | Backend | Status |
+| --- | --- | --- |
+| Windows 10 / 11 | Windows Graphics Capture, GDI fallback | Supported and tested |
+| macOS | Quartz (`backends/macos.py`) | Experimental, **unverified** |
+| Linux (X11) | X11 + Composite (`backends/linux.py`) | Experimental, **unverified** |
+| Linux (Wayland) | none | Not supported by design |
 
-- **macOS** — ScreenCaptureKit (or the older Quartz `CGWindowList` API), plus
-  the user granting Screen Recording permission.
-- **Linux** — X11 via XComposite, or PipeWire through `xdg-desktop-portal` on
-  Wayland. Wayland deliberately restricts window capture for security, so it
-  always requires an interactive permission prompt.
+### On "unverified"
 
-See the [Roadmap](#roadmap).
+The macOS and Linux backends were written against the Quartz and Xlib APIs but
+have **never been executed on those platforms**. They are structurally complete
+and conform to the backend interface, but expect to fix details on first contact
+with real hardware. Bug reports and fixes are very welcome. PaneCast states
+plainly in its own UI when it is running an experimental backend.
+
+### Platform notes
+
+- **macOS** needs `pyobjc-framework-Quartz` and **Screen Recording** permission
+  (System Settings > Privacy & Security > Screen Recording). Without it macOS
+  silently returns wallpaper-only images rather than raising. Quartz's
+  `CGWindowListCreateImage` is used rather than ScreenCaptureKit: it is
+  deprecated as of macOS 14 but synchronous and far simpler. ScreenCaptureKit is
+  the right long-term target.
+- **Linux** needs `python-xlib` and an X11/Xorg session. Capturing occluded
+  windows relies on the X Composite extension, so a compositing manager should
+  be running.
+- **Wayland** deliberately forbids one client from reading another client's
+  pixels. The sanctioned route is PipeWire via `xdg-desktop-portal`, which needs
+  an interactive permission prompt per capture. PaneCast detects a Wayland
+  session and says so, rather than silently capturing black frames. Apps running
+  under XWayland are still capturable from an X11 session.
+
+### Adding a backend
+
+Subclass `CaptureBackend` in [`backends/base.py`](backends/base.py) and
+implement `is_available()`, `list_windows()`, `list_monitors()`,
+`window_bounds()` and `grab()`. Implementing `open_stream()` is optional: if it
+returns `None`, the render loop polls `grab()` each tick instead. Then register
+the class in `backends/__init__.py`.
 
 ---
 
@@ -274,7 +299,10 @@ after opening the app. Minimised windows may not capture reliably.
 
 ## Roadmap
 
-- [ ] Cross-platform capture backends (macOS, Linux)
+- [x] Cross-platform capture backend architecture
+- [ ] Verify the macOS and Linux backends on real hardware
+- [ ] macOS ScreenCaptureKit backend (replacing deprecated Quartz calls)
+- [ ] Wayland support via PipeWire / xdg-desktop-portal
 - [x] Configurable target framerate instead of a fixed timer
 - [x] Remember last-used window/display selection between runs
 - [x] Adjustable picture-in-picture size and corner
@@ -283,10 +311,13 @@ after opening the app. Minimised windows may not capture reliably.
 
 ## Contributing
 
-Issues and pull requests are welcome. The capture layer is deliberately
-isolated in a handful of functions (`get_open_windows`, `get_monitors`,
-`find_best_capture_hwnd`, `get_window_bounds`, `capture_printwindow`), which is
-the natural seam for adding a non-Windows backend.
+Issues and pull requests are welcome. Capture is isolated behind the interface
+in [`backends/base.py`](backends/base.py), which is the natural seam for new
+platforms; see [Adding a backend](#adding-a-backend).
+
+The most useful contribution right now is **running the macOS or Linux backend
+on real hardware and reporting what breaks**. Both are written, neither has ever
+been executed.
 
 ## License
 

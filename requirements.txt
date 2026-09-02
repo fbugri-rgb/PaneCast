@@ -1,7 +1,17 @@
-# Core runtime dependencies
+# Core runtime dependency, all platforms
 pillow>=10.0.0
 
-# Optional but strongly recommended: enables the fast Windows Graphics
-# Capture backend. Without it the app falls back to the slower GDI
-# PrintWindow path. Windows only.
+# --- Windows -----------------------------------------------------------
+# Enables the fast Windows Graphics Capture backend. Without it PaneCast falls
+# back to the slower GDI PrintWindow path, which some applications refuse to
+# render into.
 windows-capture>=2.0.0 ; sys_platform == "win32"
+
+# --- macOS (experimental, unverified) ----------------------------------
+# Quartz window enumeration and capture. Screen Recording permission must also
+# be granted in System Settings.
+pyobjc-framework-Quartz>=10.0 ; sys_platform == "darwin"
+
+# --- Linux / X11 (experimental, unverified) ----------------------------
+# X11 window enumeration and capture. Wayland sessions are not supported.
+python-xlib>=0.33 ; sys_platform == "linux"

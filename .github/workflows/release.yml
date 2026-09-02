@@ -37,7 +37,8 @@ jobs:
       - name: Verify environment
         run: |
           python -c "import tkinter; print('tkinter', tkinter.TkVersion)"
-          python -c "import panecast; print('WGC engine:', panecast.HAS_WINDOWS_CAPTURE); assert panecast.HAS_WINDOWS_CAPTURE"
+          python -c "import backends; b = backends.get_backend(); print('backend:', type(b).__name__, '-', b.name); assert type(b).__name__ == 'WindowsBackend', 'wrong backend selected'"
+          python -c "import backends.windows as w; print('WGC engine:', w.HAS_WINDOWS_CAPTURE); assert w.HAS_WINDOWS_CAPTURE, 'fast capture path missing'"
 
       - name: Build executable
         run: >
