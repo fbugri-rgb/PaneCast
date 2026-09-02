@@ -276,7 +276,7 @@ class PaneCastControl:
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Header
-        title_label = ttk.Label(main_frame, text="🪟 PaneCast", font=("Segoe UI", 14, "bold"))
+        title_label = ttk.Label(main_frame, text="PaneCast", font=("Segoe UI", 14, "bold"))
         title_label.pack(anchor="w", pady=(0, 2))
         
         subtitle = ttk.Label(main_frame, text="Cast individual windows to a TV - the rest of your screen stays private", font=("Segoe UI", 9))
@@ -289,7 +289,7 @@ class PaneCastControl:
         self.win1_combo = ttk.Combobox(win1_group, state="readonly", font=("Segoe UI", 9))
         self.win1_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
 
-        btn_refresh_wins = ttk.Button(win1_group, text="🔄 Refresh List", command=self.refresh_windows)
+        btn_refresh_wins = ttk.Button(win1_group, text="Refresh List", command=self.refresh_windows)
         btn_refresh_wins.pack(side=tk.RIGHT)
 
         # Window 2 Selection Section
@@ -306,9 +306,9 @@ class PaneCastControl:
         self.layout_combo = ttk.Combobox(
             layout_group, state="readonly", font=("Segoe UI", 9),
             values=[
-                "↔️ Side-by-Side (Left / Right Split)",
-                "↕️ Top / Bottom Split",
-                "🖼️ Picture-in-Picture (Game Inset Overlay)"
+                "Side-by-Side (Left / Right Split)",
+                "Top / Bottom Split",
+                "Picture-in-Picture (Game Inset Overlay)"
             ]
         )
         self.layout_combo.current(0)
@@ -321,7 +321,7 @@ class PaneCastControl:
         self.disp_combo = ttk.Combobox(disp_group, state="readonly", font=("Segoe UI", 9))
         self.disp_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
 
-        btn_refresh_disp = ttk.Button(disp_group, text="🔄 Detect Screens", command=self.refresh_monitors)
+        btn_refresh_disp = ttk.Button(disp_group, text="Detect Screens", command=self.refresh_monitors)
         btn_refresh_disp.pack(side=tk.RIGHT)
 
         # Multi-monitor notice label
@@ -338,14 +338,14 @@ class PaneCastControl:
         btn_frame.pack(fill=tk.X, pady=(4, 4))
 
         self.btn_start = tk.Button(
-            btn_frame, text="⚡ START MAX REFRESH RATE PROJECTING", font=("Segoe UI", 11, "bold"),
+            btn_frame, text="START PROJECTING", font=("Segoe UI", 11, "bold"),
             bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white",
             relief=tk.FLAT, bd=0, pady=10, command=self.start_projection
         )
         self.btn_start.pack(fill=tk.X, pady=(0, 6))
 
         self.btn_stop = tk.Button(
-            btn_frame, text="⏹ STOP PROJECTING", font=("Segoe UI", 10, "bold"),
+            btn_frame, text="STOP PROJECTING", font=("Segoe UI", 10, "bold"),
             bg="#dc2626", fg="white", activebackground="#b91c1c", activeforeground="white",
             relief=tk.FLAT, bd=0, pady=8, command=self.stop_projection, state=tk.DISABLED
         )
@@ -392,7 +392,7 @@ class PaneCastControl:
 
         if len(self.monitors_list) == 1:
             self.monitor_notice.config(
-                text="⚠️ Only 1 Screen Detected! Press Win + P -> Select 'EXTEND' then click 🔄 Detect.",
+                text="⚠️ Only 1 Screen Detected! Press Win + P -> Select 'EXTEND' then click 'Detect Screens'.",
                 foreground="#d97706"
             )
         else:

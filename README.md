@@ -27,14 +27,12 @@ laptop while only the window(s) you chose appear on the big screen.
   setups.
 - **Press `Esc` or `q`** on the projected screen to stop at any time.
 
-## Screenshots
+## Screenshot
 
-<!-- Add real screenshots before publishing:
-     docs/control-panel.png and docs/projected-output.png -->
+![PaneCast control panel](docs/control-panel.png)
 
-| Control panel | Projected output |
-| ------------- | ---------------- |
-| _screenshot_  | _screenshot_     |
+Pick one or two windows, choose how to lay them out, select the target display,
+and project. The chosen windows appear on the TV; nothing else does.
 
 ---
 
