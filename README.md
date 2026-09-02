@@ -214,6 +214,29 @@ The binary appears in `dist/PaneCast.exe` (~29 MB).
   the import still succeeds. Verified: the resulting binary still reports
   `HAS_WINDOWS_CAPTURE = True` and captures live frames.
 
+### Automated builds
+
+Pushing a `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which builds the executable on a `windows-latest` runner, verifies it, and
+publishes a release with the binary and its SHA256 attached:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Running the workflow manually (**Actions → Build and release → Run workflow**)
+performs the same build but uploads the exe as a workflow artifact instead of
+publishing a release, which is useful for testing a change to the pipeline.
+
+The workflow asserts that `HAS_WINDOWS_CAPTURE` is true and that the binary
+stays under 45 MB, so a regression that silently drops the fast capture engine
+or re-bundles OpenCV fails the build rather than shipping.
+
+A code-signing step is present but disabled. To enable it, add your certificate
+as the `CERT_PFX_BASE64` secret (base64-encoded PFX) and its password as
+`CERT_PASSWORD`, then remove the `if: false` from the *Sign executable* step.
+
 **PyInstaller cannot cross-compile.** A Windows `.exe` must be built on
 Windows, a macOS `.app` on macOS, and a Linux binary on Linux. Once other
 platforms are supported, a GitHub Actions matrix build across
@@ -255,7 +278,8 @@ after opening the app. Minimised windows may not capture reliably.
 - [x] Configurable target framerate instead of a fixed timer
 - [x] Remember last-used window/display selection between runs
 - [x] Adjustable picture-in-picture size and corner
-- [ ] Signed release binaries via GitHub Actions
+- [x] Automated release builds via GitHub Actions
+- [ ] Code-signed binaries (needs a code-signing certificate)
 
 ## Contributing
 

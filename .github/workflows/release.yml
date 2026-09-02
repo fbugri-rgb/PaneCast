@@ -1,0 +1,121 @@
+name: Build and release
+
+# Tag pushes publish a release. Manual runs build and attach the exe as a
+# workflow artifact instead, so the pipeline can be exercised without cutting
+# a version.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # Catches a broken environment before spending time on the build. tkinter
+      # is the dependency most likely to be missing, and windows-capture being
+      # absent would silently downgrade the app to the slow GDI path.
+      - name: Verify environment
+        run: |
+          python -c "import tkinter; print('tkinter', tkinter.TkVersion)"
+          python -c "import panecast; print('WGC engine:', panecast.HAS_WINDOWS_CAPTURE); assert panecast.HAS_WINDOWS_CAPTURE"
+
+      - name: Build executable
+        run: >
+          pyinstaller --onefile --windowed --name PaneCast --noconfirm
+          --exclude-module cv2
+          --runtime-hook pyi_rth_stub_cv2.py
+          panecast.py
+
+      # The stub hook means cv2 is absent from the bundle. If that ever breaks
+      # the app falls back to GDI silently, so assert the engine survived.
+      - name: Verify the bundle
+        run: |
+          if (-not (Test-Path dist/PaneCast.exe)) { throw "build produced no exe" }
+          $size = (Get-Item dist/PaneCast.exe).Length
+          Write-Host "built PaneCast.exe ($([math]::Round($size/1MB,1)) MB)"
+          if ($size -gt 45MB) { throw "exe is $([math]::Round($size/1MB,1)) MB - OpenCV may have been bundled" }
+
+      # --- Code signing -----------------------------------------------------
+      # Unsigned binaries trip SmartScreen. To sign, add a base64-encoded PFX as
+      # the CERT_PFX_BASE64 secret and its password as CERT_PASSWORD, then
+      # remove the `if: false` below.
+      - name: Sign executable
+        if: false
+        shell: pwsh
+        run: |
+          $pfx = "$env:RUNNER_TEMP\cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX_BASE64))
+          & signtool sign /f $pfx /p $env:CERT_PASSWORD /fd SHA256 `
+            /tr http://timestamp.digicert.com /td SHA256 dist\PaneCast.exe
+          Remove-Item $pfx -Force
+        env:
+          CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+
+      - name: Compute checksum
+        id: sha
+        run: |
+          $hash = (Get-FileHash dist/PaneCast.exe -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA256: $hash"
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+
+      # Always available, including on manual runs that publish nothing.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaneCast-exe
+          path: dist/PaneCast.exe
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          @"
+          Cast one or two **individual application windows** to a TV or second
+          display - without mirroring your whole desktop.
+
+          ## Download
+
+          **[PaneCast.exe](https://github.com/${{ github.repository }}/releases/download/$env:TAG/PaneCast.exe)** - no Python installation needed.
+
+          > **Windows SmartScreen** will warn you, because the binary is not
+          > code-signed. Click **More info -> Run anyway**, or run from source.
+
+          ``````
+          SHA256: $env:SHA256
+          ``````
+
+          ## Requirements
+
+          - Windows 10 (1903+) or Windows 11
+          - A second display set to **Extend** (``Win + P`` -> *Extend*)
+          "@ | Out-File -FilePath notes.md -Encoding utf8
+
+          gh release create "$env:TAG" dist/PaneCast.exe `
+            --title "PaneCast $env:TAG" `
+            --notes-file notes.md `
+            --generate-notes
