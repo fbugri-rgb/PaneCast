@@ -50,7 +50,16 @@ Python **must** include Tcl/Tk. This is an option in the official installer
 labelled *"tcl/tk and IDLE"* — if it was unchecked, the app cannot start.
 See [Troubleshooting](#troubleshooting).
 
-## Installation
+## Download
+
+**[Download PaneCast.exe](https://github.com/fbugri-rgb/Panecast/releases/latest)**
+— a single 29 MB file, no Python installation required.
+
+Windows SmartScreen will warn you the first time, because the binary is not
+code-signed. Click **More info → Run anyway**, or run from source below if you
+would rather not trust a prebuilt binary.
+
+## Installation from source
 
 ```bash
 git clone https://github.com/<your-username>/panecast.git
