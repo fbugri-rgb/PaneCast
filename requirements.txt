@@ -1,0 +1,7 @@
+# Core runtime dependencies
+pillow>=10.0.0
+
+# Optional but strongly recommended: enables the fast Windows Graphics
+# Capture backend. Without it the app falls back to the slower GDI
+# PrintWindow path. Windows only.
+windows-capture>=2.0.0 ; sys_platform == "win32"
