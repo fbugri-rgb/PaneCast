@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from PIL import Image, ImageTk
 import atexit
+import json
 import os
 
 # Enable 1ms High-Precision System Timer on Windows for Ultra-Smooth Refresh Rates
@@ -30,6 +31,52 @@ except Exception:
         ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
     except Exception:
         pass
+
+APP_NAME = "PaneCast"
+
+# (label, frames per second). 0 means "as fast as the render loop manages".
+FPS_OPTIONS = [
+    ("15 fps (lowest CPU)", 15),
+    ("30 fps", 30),
+    ("60 fps", 60),
+    ("Unlimited", 0),
+]
+
+# (label, fraction of the screen the inset occupies)
+PIP_SIZE_OPTIONS = [("Small (25%)", 0.25), ("Medium (33%)", 0.33),
+                    ("Large (38%)", 0.38), ("Extra large (50%)", 0.50)]
+
+# (label, (horizontal, vertical)) where horizontal is 'l'/'r' and vertical 't'/'b'
+PIP_CORNER_OPTIONS = [("Bottom right", ("r", "b")), ("Bottom left", ("l", "b")),
+                      ("Top right", ("r", "t")), ("Top left", ("l", "t"))]
+
+
+def settings_path():
+    """Per-user settings file, kept out of the install directory."""
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, APP_NAME, "settings.json")
+
+
+def load_settings():
+    """Return saved settings, or an empty dict if there are none or they are unreadable."""
+    try:
+        with open(settings_path(), encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_settings(data):
+    """Best-effort persist. Never let a settings failure interrupt projection."""
+    try:
+        path = settings_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+    except Exception:
+        pass
+
 
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
@@ -223,7 +270,7 @@ class PaneCastControl:
     def __init__(self, root):
         self.root = root
         self.root.title("PaneCast")
-        self.root.geometry("560x540")
+        self.root.geometry("560x660")
         self.root.resizable(False, False)
         
         style = ttk.Style()
@@ -255,6 +302,7 @@ class PaneCastControl:
         # coords/itemconfigure calls can be skipped when nothing moved.
         self._blit_state = {}
         self._pip_visible = None
+        self.frame_interval_ms = 33      # replaced from the saved settings below
         
         self.item_id1 = None
         self.item_id2 = None
@@ -270,6 +318,7 @@ class PaneCastControl:
 
         self._build_ui()
         self.refresh_all()
+        self._apply_settings()
 
     def _build_ui(self):
         main_frame = ttk.Frame(self.root, padding="15 15 15 15")
@@ -313,6 +362,30 @@ class PaneCastControl:
         )
         self.layout_combo.current(0)
         self.layout_combo.pack(fill=tk.X)
+        self.layout_combo.bind("<<ComboboxSelected>>", self._on_layout_changed)
+
+        # Picture-in-picture tuning. Only meaningful in PiP mode, so it is
+        # enabled and disabled alongside the layout selection.
+        self.pip_frame = ttk.Frame(layout_group)
+        self.pip_frame.pack(fill=tk.X, pady=(8, 0))
+
+        ttk.Label(self.pip_frame, text="Inset size:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self.pip_size_combo = ttk.Combobox(
+            self.pip_frame, state="readonly", font=("Segoe UI", 9), width=16,
+            values=[label for label, _ in PIP_SIZE_OPTIONS]
+        )
+        self.pip_size_combo.current(2)
+        self.pip_size_combo.pack(side=tk.LEFT, padx=(6, 14))
+        self.pip_size_combo.bind("<<ComboboxSelected>>", self._on_pip_changed)
+
+        ttk.Label(self.pip_frame, text="Corner:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self.pip_corner_combo = ttk.Combobox(
+            self.pip_frame, state="readonly", font=("Segoe UI", 9), width=14,
+            values=[label for label, _ in PIP_CORNER_OPTIONS]
+        )
+        self.pip_corner_combo.current(0)
+        self.pip_corner_combo.pack(side=tk.LEFT, padx=(6, 0))
+        self.pip_corner_combo.bind("<<ComboboxSelected>>", self._on_pip_changed)
 
         # Display Selection Section
         disp_group = ttk.LabelFrame(main_frame, text=" Target TV / Extended Display ", padding="8 8 8 8")
@@ -323,6 +396,19 @@ class PaneCastControl:
 
         btn_refresh_disp = ttk.Button(disp_group, text="Detect Screens", command=self.refresh_monitors)
         btn_refresh_disp.pack(side=tk.RIGHT)
+
+        # Target framerate
+        perf_group = ttk.LabelFrame(main_frame, text=" Performance ", padding="8 8 8 8")
+        perf_group.pack(fill=tk.X, pady=(0, 8))
+
+        ttk.Label(perf_group, text="Target framerate:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        self.fps_combo = ttk.Combobox(
+            perf_group, state="readonly", font=("Segoe UI", 9), width=20,
+            values=[label for label, _ in FPS_OPTIONS]
+        )
+        self.fps_combo.current(1)
+        self.fps_combo.pack(side=tk.LEFT, padx=(6, 0))
+        self.fps_combo.bind("<<ComboboxSelected>>", self._on_fps_changed)
 
         # Multi-monitor notice label
         self.monitor_notice = ttk.Label(main_frame, text="", font=("Segoe UI", 8, "bold"))
@@ -354,6 +440,82 @@ class PaneCastControl:
         # Footer
         footer = ttk.Label(main_frame, text="💡 Tip: Press 'Esc' on the TV screen anytime to stop projecting.", font=("Segoe UI", 8, "italic"))
         footer.pack(side=tk.BOTTOM, pady=(4, 0))
+
+    # ---- option accessors -------------------------------------------------
+
+    def _fps_interval_ms(self):
+        """Milliseconds between render ticks for the selected target framerate."""
+        idx = self.fps_combo.current()
+        fps = FPS_OPTIONS[idx][1] if 0 <= idx < len(FPS_OPTIONS) else 30
+        return 1 if fps <= 0 else max(1, round(1000 / fps))
+
+    def _pip_fraction(self):
+        idx = self.pip_size_combo.current()
+        return PIP_SIZE_OPTIONS[idx][1] if 0 <= idx < len(PIP_SIZE_OPTIONS) else 0.38
+
+    def _pip_corner(self):
+        idx = self.pip_corner_combo.current()
+        return PIP_CORNER_OPTIONS[idx][1] if 0 <= idx < len(PIP_CORNER_OPTIONS) else ("r", "b")
+
+    def _on_fps_changed(self, event=None):
+        self.frame_interval_ms = self._fps_interval_ms()
+
+    def _on_pip_changed(self, event=None):
+        # Force the next tick to repaint so the change is visible immediately
+        # instead of waiting for the next captured frame.
+        self.rendered_seq1 = self.rendered_seq2 = -1
+        self._blit_state.clear()
+        self._pip_visible = None
+
+    def _on_layout_changed(self, event=None):
+        is_pip = self.layout_combo.current() == 2
+        state = "readonly" if is_pip else "disabled"
+        self.pip_size_combo.config(state=state)
+        self.pip_corner_combo.config(state=state)
+        self._on_pip_changed()
+
+    # ---- settings ---------------------------------------------------------
+
+    def _apply_settings(self):
+        """Restore the previous session's choices where they still make sense."""
+        cfg = load_settings()
+
+        title = cfg.get("window1")
+        if title and title in self.windows_map:
+            self.win1_combo.set(title)
+
+        title2 = cfg.get("window2")
+        if title2 and title2 in self.windows_map:
+            self.win2_combo.set(title2)
+
+        for key, combo, table in (
+            ("layout", self.layout_combo, range(3)),
+            ("fps", self.fps_combo, FPS_OPTIONS),
+            ("pip_size", self.pip_size_combo, PIP_SIZE_OPTIONS),
+            ("pip_corner", self.pip_corner_combo, PIP_CORNER_OPTIONS),
+        ):
+            idx = cfg.get(key)
+            if isinstance(idx, int) and 0 <= idx < len(table):
+                combo.current(idx)
+
+        # A saved monitor index is only meaningful if that monitor still exists.
+        mon = cfg.get("monitor")
+        if isinstance(mon, int) and 0 <= mon < len(self.monitors_list):
+            self.disp_combo.current(mon)
+
+        self.frame_interval_ms = self._fps_interval_ms()
+        self._on_layout_changed()
+
+    def _save_settings(self):
+        save_settings({
+            "window1": self.win1_combo.get(),
+            "window2": self.win2_combo.get(),
+            "layout": self.layout_combo.current(),
+            "monitor": self.disp_combo.current(),
+            "fps": self.fps_combo.current(),
+            "pip_size": self.pip_size_combo.current(),
+            "pip_corner": self.pip_corner_combo.current(),
+        })
 
     def refresh_all(self):
         self.refresh_windows()
@@ -480,6 +642,7 @@ class PaneCastControl:
             self.target_hwnd2 = None
 
         self.target_monitor = self.monitors_list[disp_idx]
+        self._save_settings()
         self.latest_pil_img1 = None
         self.latest_pil_img2 = None
         self.frame_seq1 = 0
@@ -531,10 +694,6 @@ class PaneCastControl:
 
         # Start high-speed refresh rate update loop
         self.update_projection()
-
-    # Render tick. The dirty check below means idle ticks are nearly free, so
-    # this can stay short without burning CPU on unchanged frames.
-    FRAME_INTERVAL_MS = 8
 
     def _blit(self, item_id, slot, pil_img, box_w, box_h, cx, cy):
         """Scale pil_img to fit box_w x box_h and centre it on (cx, cy).
@@ -615,7 +774,7 @@ class PaneCastControl:
         # Nothing new arrived since the last paint - skip the rescale and the
         # texture upload entirely.
         if seq1 == self.rendered_seq1 and seq2 == self.rendered_seq2:
-            self.root.after(self.FRAME_INTERVAL_MS, self.update_projection)
+            self.root.after(self.frame_interval_ms, self.update_projection)
             return
         self.rendered_seq1, self.rendered_seq2 = seq1, seq2
 
@@ -664,26 +823,33 @@ class PaneCastControl:
                     self._blit(self.item_id1, 1, img1, canvas_w, canvas_h,
                                canvas_w // 2, canvas_h // 2)
                 if img2:
-                    max_pip_w = int(canvas_w * 0.38)
-                    max_pip_h = int(canvas_h * 0.38)
+                    frac = self._pip_fraction()
+                    horiz, vert = self._pip_corner()
+                    max_pip_w = int(canvas_w * frac)
+                    max_pip_h = int(canvas_h * frac)
                     padding = 20
 
                     w2, h2 = img2.size
                     ratio2 = min(max_pip_w / w2, max_pip_h / h2)
                     nw2, nh2 = max(1, int(w2 * ratio2)), max(1, int(h2 * ratio2))
 
-                    self.canvas.coords(
-                        self.rect_pip_id,
-                        canvas_w - nw2 - padding - 4, canvas_h - nh2 - padding - 4,
-                        canvas_w - padding + 4, canvas_h - padding + 4
-                    )
+                    if horiz == "r":
+                        x1 = canvas_w - nw2 - padding
+                    else:
+                        x1 = padding
+                    if vert == "b":
+                        y1 = canvas_h - nh2 - padding
+                    else:
+                        y1 = padding
+
+                    self.canvas.coords(self.rect_pip_id,
+                                       x1 - 4, y1 - 4, x1 + nw2 + 4, y1 + nh2 + 4)
                     self._set_pip_visible(True)
 
                     self._blit(self.item_id2, 2, img2, max_pip_w, max_pip_h,
-                               canvas_w - (nw2 // 2) - padding,
-                               canvas_h - (nh2 // 2) - padding)
+                               x1 + nw2 // 2, y1 + nh2 // 2)
 
-        self.root.after(self.FRAME_INTERVAL_MS, self.update_projection)
+        self.root.after(self.frame_interval_ms, self.update_projection)
 
     def stop_projection(self):
         self.is_projecting = False
@@ -715,6 +881,7 @@ class PaneCastControl:
 
     def on_close(self):
         """Tear down capture threads before the UI goes away."""
+        self._save_settings()
         self.stop_projection()
         try:
             self.root.destroy()

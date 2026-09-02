@@ -25,6 +25,12 @@ laptop while only the window(s) you chose appear on the big screen.
   capture cleanly instead of showing a blank frame.
 - **DPI-correct** — per-monitor DPI awareness keeps pixels 1:1 on mixed-DPI
   setups.
+- **Configurable framerate** — cap the render loop at 15, 30 or 60 fps to trade
+  smoothness for CPU, or run unlimited.
+- **Adjustable picture-in-picture** — put the inset in any corner at 25%, 33%,
+  38% or 50% of the screen.
+- **Remembers your setup** — window, display, layout and framerate choices are
+  restored the next time you launch.
 - **Press `Esc` or `q`** on the projected screen to stop at any time.
 
 ## Screenshot
@@ -90,7 +96,30 @@ python panecast.py
 | --- | --- |
 | **Side-by-Side** | Two windows split left / right. |
 | **Top / Bottom** | Two windows stacked vertically. |
-| **Picture-in-Picture** | Window 1 fills the screen; window 2 floats bottom-right at 38% size. |
+| **Picture-in-Picture** | Window 1 fills the screen; window 2 floats in a corner as an inset. |
+
+In picture-in-picture mode the **Inset size** and **Corner** controls become
+available, letting you place the inset in any of the four corners at 25%, 33%,
+38% or 50% of the screen. They are greyed out in the other layouts.
+
+### Framerate
+
+**Target framerate** caps the render loop. Frames are only redrawn when the
+capture thread delivers a new one, so a lower cap costs nothing in
+responsiveness but meaningfully reduces CPU. 30 fps is the default; drop to
+15 fps on a laptop running on battery, or raise it if you are projecting at
+1080p and want maximum smoothness.
+
+### Saved settings
+
+Your selections are written to `%APPDATA%\PaneCast\settings.json` when you
+start projecting and when you close the app, then restored on the next launch.
+A remembered window is only reselected if a window with that title is open
+again; a remembered display only if it is still connected. Delete the file to
+reset to defaults.
+
+Note that the file records the *titles* of the windows you projected. It stays
+on your machine, but delete it if you would rather not keep that history.
 
 Selecting *"(None - Single Window Mode)"* for the second window projects a
 single window scaled to fit, preserving aspect ratio.
@@ -223,9 +252,9 @@ after opening the app. Minimised windows may not capture reliably.
 ## Roadmap
 
 - [ ] Cross-platform capture backends (macOS, Linux)
-- [ ] Configurable target framerate instead of a fixed timer
-- [ ] Remember last-used window/display selection between runs
-- [ ] Adjustable picture-in-picture size and corner
+- [x] Configurable target framerate instead of a fixed timer
+- [x] Remember last-used window/display selection between runs
+- [x] Adjustable picture-in-picture size and corner
 - [ ] Signed release binaries via GitHub Actions
 
 ## Contributing
