@@ -164,13 +164,19 @@ Users then need no Python installation.
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name PaneCast panecast.py
+pyinstaller --onefile --windowed --name PaneCast --noconfirm   --exclude-module cv2   --runtime-hook pyi_rth_stub_cv2.py   panecast.py
 ```
 
-The binary appears in `dist/`.
+The binary appears in `dist/PaneCast.exe` (~29 MB).
 
 - `--onefile` bundles everything into a single `.exe`.
 - `--windowed` suppresses the console window.
+- `--exclude-module cv2` together with the runtime hook drops OpenCV, which
+  `windows-capture` imports at module scope but only uses in `save_as_image()`
+  — a function PaneCast never calls. Bundling it anyway costs **45 MB**
+  (70 MB → 29 MB) for code that never runs. The hook installs a stub module so
+  the import still succeeds. Verified: the resulting binary still reports
+  `HAS_WINDOWS_CAPTURE = True` and captures live frames.
 
 **PyInstaller cannot cross-compile.** A Windows `.exe` must be built on
 Windows, a macOS `.app` on macOS, and a Linux binary on Linux. Once other
