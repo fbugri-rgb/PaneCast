@@ -52,7 +52,7 @@ See [Troubleshooting](#troubleshooting).
 
 ## Download
 
-**[Download PaneCast.exe](https://github.com/fbugri-rgb/Panecast/releases/latest)**
+**[Download PaneCast.exe](https://github.com/fbugri-rgb/PaneCast/releases/latest)**
 — a single 29 MB file, no Python installation required.
 
 Windows SmartScreen will warn you the first time, because the binary is not
@@ -62,8 +62,8 @@ would rather not trust a prebuilt binary.
 ## Installation from source
 
 ```bash
-git clone https://github.com/<your-username>/panecast.git
-cd panecast
+git clone https://github.com/<your-username>/PaneCast.git
+cd PaneCast
 
 python -m venv .venv
 .venv\Scripts\activate
