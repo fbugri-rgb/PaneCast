@@ -35,10 +35,13 @@ laptop while only the window(s) you chose appear on the big screen.
 
 ## Screenshot
 
-![PaneCast control panel](docs/control-panel.png)
+<p align="center">
+  <img src="docs/control-panel.png" alt="The PaneCast control panel" width="470">
+</p>
 
-Pick one or two windows, choose how to lay them out, select the target display,
-and project. The chosen windows appear on the TV; nothing else does.
+The whole app is one window. Pick what to project, choose how to lay it out,
+select the target display, and press the button. The chosen windows appear on
+the TV; nothing else does.
 
 ---
 
@@ -220,6 +223,13 @@ python panecast.py
 In picture-in-picture mode the **Inset size** and **Corner** controls become
 available, letting you place the inset in any of the four corners at 25%, 33%,
 38% or 50% of the screen. They are greyed out in the other layouts.
+
+<p align="center">
+  <img src="docs/layout-pip.png" alt="PaneCast with two windows selected and picture-in-picture chosen" width="470">
+</p>
+
+<p align="center"><em>Two windows selected, picture-in-picture chosen, with the
+inset controls active.</em></p>
 
 ### Framerate
 
