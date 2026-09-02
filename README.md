@@ -42,38 +42,157 @@ and project. The chosen windows appear on the TV; nothing else does.
 
 ---
 
-## Requirements
+## Get started
 
-| | |
-| --- | --- |
-| OS | Windows 10 (1903+) or Windows 11 |
-| Python | 3.9 or newer |
-| Displays | At least two (a second monitor set to **Extend**) |
+Find your platform below.
 
-Python **must** include Tcl/Tk. This is an option in the official installer
-labelled *"tcl/tk and IDLE"* — if it was unchecked, the app cannot start.
-See [Troubleshooting](#troubleshooting).
+| Your system | What to do | Status |
+| --- | --- | --- |
+| **Windows 10 / 11** | [Download the ready-made app](#windows) — no setup | Supported and tested |
+| **macOS** | [Run from source](#macos) | Experimental, unverified |
+| **Linux (X11)** | [Run from source](#linux-x11) | Experimental, unverified |
+| **Linux (Wayland)** | [Not supported](#linux-wayland) — switch to an X11 session | Not supported |
 
-## Download
+Everything needs **two displays**, with the second one set to *Extend* rather
+than *Duplicate*.
 
-**[Download PaneCast.exe](https://github.com/fbugri-rgb/PaneCast/releases/latest)**
-— a single 29 MB file, no Python installation required.
+---
 
-Windows SmartScreen will warn you the first time, because the binary is not
-code-signed. Click **More info → Run anyway**, or run from source below if you
-would rather not trust a prebuilt binary.
+### Windows
 
-## Installation from source
+**The easy way.** Download one file and run it — no Python, no setup:
+
+> ### [⬇ Download PaneCast.exe](https://github.com/fbugri-rgb/PaneCast/releases/latest)
+>
+> ~29 MB · Windows 10 (1903 or newer) and Windows 11
+
+Windows SmartScreen will warn you the first time, because the file is not
+code-signed. Click **More info → Run anyway**. If you would rather not run a
+prebuilt binary, use the source route below instead.
+
+**From source**, if you prefer:
 
 ```bash
-git clone https://github.com/<your-username>/PaneCast.git
+git clone https://github.com/fbugri-rgb/PaneCast.git
 cd PaneCast
 
 python -m venv .venv
 .venv\Scripts\activate
 
 pip install -r requirements.txt
+python panecast.py
 ```
+
+Your Python **must** include Tcl/Tk — it is a checkbox in the official
+installer labelled *"tcl/tk and IDLE"*. If it was unchecked, PaneCast cannot
+start; see [Troubleshooting](#troubleshooting) for the fix.
+
+| Reference | |
+| --- | --- |
+| Capture backend | [`backends/windows.py`](backends/windows.py) |
+| Dependencies | [`requirements.txt`](requirements.txt) |
+| Fast capture engine | [`windows-capture`](https://pypi.org/project/windows-capture/) — optional, but without it PaneCast uses a slower fallback |
+
+---
+
+### macOS
+
+> **Experimental.** This backend is written but has never been run on a Mac.
+> Expect rough edges, and please
+> [open an issue](https://github.com/fbugri-rgb/PaneCast/issues) with what you
+> find. There is no prebuilt `.app` yet.
+
+```bash
+git clone https://github.com/fbugri-rgb/PaneCast.git
+cd PaneCast
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+python3 panecast.py
+```
+
+**You must grant Screen Recording permission**, or macOS quietly hands back
+images of your wallpaper instead of the window you picked — with no error:
+
+**System Settings → Privacy & Security → Screen Recording** → enable it for your
+terminal (or for PaneCast), then restart the app.
+
+| Reference | |
+| --- | --- |
+| Capture backend | [`backends/macos.py`](backends/macos.py) |
+| Dependencies | [`requirements.txt`](requirements.txt) |
+| Required package | [`pyobjc-framework-Quartz`](https://pypi.org/project/pyobjc-framework-Quartz/) — installed automatically by the command above |
+
+---
+
+### Linux (X11)
+
+> **Experimental.** This backend is written but has never been run on a Linux
+> desktop. Expect rough edges, and please
+> [open an issue](https://github.com/fbugri-rgb/PaneCast/issues) with what you
+> find.
+
+```bash
+git clone https://github.com/fbugri-rgb/PaneCast.git
+cd PaneCast
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+python3 panecast.py
+```
+
+If Python complains that `tkinter` is missing, install it from your package
+manager — it ships separately from Python on most distributions:
+
+```bash
+sudo apt install python3-tk      # Debian / Ubuntu
+sudo dnf install python3-tkinter # Fedora
+sudo pacman -S tk                # Arch
+```
+
+Keep a compositing manager running, otherwise windows hidden behind others may
+capture as blank or stale.
+
+| Reference | |
+| --- | --- |
+| Capture backend | [`backends/linux.py`](backends/linux.py) |
+| Dependencies | [`requirements.txt`](requirements.txt) |
+| Required package | [`python-xlib`](https://pypi.org/project/python-xlib/) — installed automatically by the command above |
+
+---
+
+### Linux (Wayland)
+
+**Not supported, and not an oversight.** Wayland deliberately prevents one
+application from reading another's pixels, so there is no way to capture a
+window the way PaneCast needs to. PaneCast detects a Wayland session and tells
+you, rather than silently showing black.
+
+Check which session you are in:
+
+```bash
+echo $XDG_SESSION_TYPE     # prints "wayland" or "x11"
+```
+
+To use PaneCast today, log out and pick an **X11 / Xorg** session at the login
+screen. Applications running under XWayland are capturable from an X11 session.
+
+Proper Wayland support means PipeWire via `xdg-desktop-portal` — it is
+[on the roadmap](#roadmap).
+
+---
+
+### Common requirements
+
+| | |
+| --- | --- |
+| Python | 3.9 or newer (only needed when running from source) |
+| Tcl/Tk | Required — bundled with Python on Windows and macOS, a separate package on Linux |
+| Displays | At least two, with the second set to **Extend** |
 
 ## Usage
 
